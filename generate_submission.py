@@ -2,18 +2,26 @@ import itertools
 import pandas as pd
 import joblib
 import os
+import numpy as np
 
 # Load preprocessed data
-df_tournament = pd.read_csv("tournament_data.csv")
-df_regular = pd.read_csv("regular_season_data.csv")
-df_tournament_balanced = pd.read_csv("balanced_tournament_data.csv")
+df_tournament = pd.read_csv("C:/Users/dell/Downloads/CI_project/data/generated/tournament_data.csv")
+df_regular = pd.read_csv("C:/Users/dell/Downloads/CI_project/data/generated/regular_season_data.csv")
+df_tournament_balanced = pd.read_csv("C:/Users/dell/Downloads/CI_project/data/generated/balanced_tournament_data.csv")
 
 # Load your trained model and scaler
-best_model = joblib.load("lgbm_best_model.pkl")
-scaler = joblib.load("scaler.pkl")
+best_model = joblib.load("C:/Users/dell/Downloads/CI_project/models/lgbm_best_model.pkl")
+scaler = joblib.load("C:/Users/dell/Downloads/CI_project/models/scaler.pkl")
 
-# Load Team IDs from the dataset (Men’s and Women’s)
-team_ids = sorted(pd.concat([df_tournament['WTeamID'], df_tournament['LTeamID']]).unique())
+# Extract team IDs from dataset (1101–1480)
+team_ids_set = set(pd.concat([df_tournament['WTeamID'], df_tournament['LTeamID']]).unique())
+
+# Create a set of additional team IDs (3101–3480) and convert to np.int64
+additional_team_ids = set(np.array(range(3101, 3481), dtype=np.int64))
+
+# Merge both sets and convert back to a sorted list of np.int64
+team_ids = np.array(sorted(team_ids_set | additional_team_ids), dtype=np.int64)
+
 
 # Generate all possible matchups
 matchups = list(itertools.combinations(team_ids, 2))  # Get all possible matchups

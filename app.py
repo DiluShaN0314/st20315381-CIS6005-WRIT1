@@ -16,7 +16,10 @@ scaler = joblib.load("models/scaler.pkl")
 
 # Load team list and stats from tournament data
 df_tournament = pd.read_csv("data/generated/tournament_data.csv")  # Ensure this CSV is generated from model.py
-teams = sorted(df_tournament["WTeamID"].unique())  # Get unique team IDs
+# Define team ID ranges
+team_ids_set = set(pd.concat([df_tournament['WTeamID'], df_tournament['LTeamID']]).unique())
+additional_team_ids = set(range(3101, 3481))
+teams = sorted(team_ids_set | additional_team_ids)
 
 # Load submission.csv
 submission_df = pd.read_csv("data/generated/submission.csv")
@@ -35,6 +38,16 @@ print(submission_df.head())
 # Team ID to Name Mapping (You can replace this with real team names)
 team_mapping = {team_id: f"Team {team_id}" for team_id in teams}
 
+# Compute dataset-wide average scores to use as defaults
+avg_wscore = df_tournament["WScore"].mean()
+avg_lscore = df_tournament["LScore"].mean()
+
+def get_team_stat(team_id, column, default=None):
+    """Get team stat from df_tournament, replacing NaN with dataset mean if missing."""
+    value = df_tournament.loc[df_tournament['WTeamID'] == team_id, column].mean()
+    return value if pd.notna(value) else (default if default is not None else 0)  # Use dataset mean if available
+
+
 @app.route('/')
 def home():
     return render_template('index.html', teams=team_mapping)
@@ -47,18 +60,16 @@ def predict():
     # Ensure lower TeamID is first for consistency
     lower_id, higher_id = min(team1, team2), max(team1, team2)
 
+
     # Extract features for matchup
-    seed_diff = df_tournament.loc[df_tournament['WTeamID'] == lower_id, "WSeed"].mean() - \
-                df_tournament.loc[df_tournament['WTeamID'] == higher_id, "WSeed"].mean()
+    seed_diff = get_team_stat(lower_id, "WSeed", default=0) - get_team_stat(higher_id, "WSeed", default=0)
+    win_pct_rolling_7 = get_team_stat(lower_id, "Win_Pct_Rolling_7", default=0) - get_team_stat(higher_id, "Win_Pct_Rolling_7", default=0)
 
-    win_pct_rolling_7 = df_tournament.loc[df_tournament['WTeamID'] == lower_id, "Win_Pct_Rolling_7"].mean() - \
-                        df_tournament.loc[df_tournament['WTeamID'] == higher_id, "Win_Pct_Rolling_7"].mean()
+    wscore_rolling_7 = get_team_stat(lower_id, "WScore_Rolling_7", default=avg_wscore)
+    lscore_rolling_7 = get_team_stat(higher_id, "LScore_Rolling_7", default=avg_lscore)
 
-    wscore_rolling_7 = df_tournament.loc[df_tournament['WTeamID'] == lower_id, "WScore_Rolling_7"].mean()
-    lscore_rolling_7 = df_tournament.loc[df_tournament['WTeamID'] == higher_id, "LScore_Rolling_7"].mean()
-
-    wscore = df_tournament.loc[df_tournament['WTeamID'] == lower_id, "WScore"].mean()
-    lscore = df_tournament.loc[df_tournament['WTeamID'] == higher_id, "LScore"].mean()
+    wscore = get_team_stat(lower_id, "WScore", default=avg_wscore)
+    lscore = get_team_stat(higher_id, "LScore", default=avg_lscore)
 
     day_num = df_tournament["DayNum"].mean()
 
@@ -77,6 +88,10 @@ def predict():
     winning_score = wscore if predicted_winner == lower_id else lscore
     losing_score = lscore if predicted_winner == lower_id else wscore
 
+     # Handle NaN scores (fallback to 0)
+    winning_score = 0 if np.isnan(winning_score) else winning_score
+    losing_score = 0 if np.isnan(losing_score) else losing_score
+
     # SHAP feature importance plot
     img = io.BytesIO()
     plt.figure(figsize=(10, 5))
@@ -94,8 +109,8 @@ def predict():
         'winning_team': team_mapping[predicted_winner],
         'losing_team': team_mapping[predicted_loser],
         'winning_probability': round(probability, 2),
-        'winning_score': winning_score,
-        'losing_score': losing_score,
+        'winning_score': round(winning_score),
+        'losing_score': round(losing_score),
         'feature_importance_img': feature_importance_img
     })
 
